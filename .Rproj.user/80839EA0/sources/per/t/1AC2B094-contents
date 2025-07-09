@@ -1,0 +1,81 @@
+library(quicR)
+library(dplyr)
+library(plot3D)
+library(plot3Drgl)
+library(magick)
+
+
+files <- list.files("raw", full.names = TRUE)
+# file <- files[1]
+
+curate <- function(file) {
+  print(file)
+  data <- get_real(file)[[1]] %>%
+    normalize_RFU()
+  
+  meta <- organize_tables(file, plate = 384) %>%
+    convert_tables()
+  
+  calcs <- data.frame(
+    `Sample IDs` = meta$`Sample IDs`,
+    check.names = FALSE
+  ) %>%
+    mutate(
+      MPR = calculate_MPR(data),
+      MS  = calculate_MS(data),
+      TtT = calculate_TtT(data, 2),
+      RAF = 1/TtT
+    )
+}
+
+df_ <- lapply(files, curate) %>%
+  bind_rows()
+
+df_new <- df_ %>%
+  mutate_at(2:5, as.numeric) %>%
+  mutate(`Sample IDs` = as.factor(`Sample IDs`))
+
+# df_ <- curate(file) %>%
+#   mutate_at(3:6, as.numeric) %>%
+#   mutate(`Sample IDs` = as.factor(`Sample IDs`)) %>%
+#   group_by(`Sample IDs`) %>%
+#   summarize_all(mean)
+
+raf <- matrix(df_$RAF, nrow = 6, ncol = 4)
+mpr     <- matrix(df_$MPR, nrow = 6, ncol = 4)
+ms      <- matrix(df_$MS, nrow = 6, ncol = 4)
+
+df_filt <- filter(df_new, MPR > 2, RAF < 0.14)
+scatter3D(
+  x = df_filt$MS,
+  y = df_filt$MPR,
+  z = df_filt$RAF,
+  scale = TRUE,
+  xlab = "MS",
+  ylab = "MPR", 
+  zlab = "RAF",
+  pch = 18,  theta = 10, phi = 10
+)
+
+play3d( spin3d( axis = c(0, 0, 1), rpm = 20,dev = cur3d()),startTime = 0, duration = 10 )
+
+movie3d(
+  movie="images/plot", 
+  spin3d( axis = c(0, 0, 1), rpm = 20,dev = cur3d()),
+  startTime = 0,
+  duration = 10, 
+  dir = ".",
+  type = "gif", 
+  clean = T,
+  fps=10,
+  convert=T,
+  webshot = F
+)
+
+list.files(path='images', pattern = '.png', full.names = TRUE) %>% 
+  image_read() %>% # reads each path file
+  image_join() %>% # joins image
+  image_animate(fps=4) %>% # animates, can opt for number of loops
+  image_write("gif.gif") # write to current dir
+
+plotrgl()
